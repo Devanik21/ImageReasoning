@@ -1,3 +1,7 @@
 streamlit
+streamlit-drawable-canvas
 google-generativeai
 Pillow
+numpy
+torch
+torchvision
