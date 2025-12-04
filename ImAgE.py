@@ -12,6 +12,28 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Custom CSS for Aesthetics ---
+st.markdown("""
+<style>
+    /* Main title with a subtle glow */
+    .main-title {
+        text-align: center;
+        font-weight: 700;
+        letter-spacing: -1px;
+        color: #FAFAFA;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.1), 0 0 20px rgba(255, 255, 255, 0.1);
+    }
+    /* Custom container styling */
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > [data-testid="stDecoratedCode"] {
+        border-radius: 10px;
+    }
+    /* Style for the main containers */
+    .st-emotion-cache-1r4qj8v {
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- Authentication ---
 def check_password():
     """Returns `True` if the user is logged in."""
@@ -85,36 +107,31 @@ auto_scroll = st.sidebar.checkbox("Auto-scroll to Latest", True)
 
 st.sidebar.markdown("---")
 
-# Control buttons
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    run_button = st.button("▶️ Run", type="primary", use_container_width=True)
-with col2:
-    reset_button = st.button("🔄 Reset", use_container_width=True)
+st.sidebar.subheader("🚀 Actions")
+run_button = st.sidebar.button("▶️ Run Training", type="primary", use_container_width=True, help="Start a new training session with the current settings.")
+reset_button = st.sidebar.button("🔄 Reset Session", use_container_width=True, help="Clear all results and reset the application.")
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader("📁 Session Management")
+# Disable session loader if a session is already active
+session_loader_disabled = bool(st.session_state.iteration_history)
+uploaded_session = st.sidebar.file_uploader(
+    "Load Session (.zip)",
+    type=['zip'],
+    disabled=session_loader_disabled,
+    help="Load a previously saved training session. This will be disabled if a session is already active."
+)
+
+# --- Main Page ---
+st.markdown('<h1 class="main-title">🎓 Student-Teacher Visual Learning System</h1>', unsafe_allow_html=True)
+st.markdown("*Inspired by DeepSeekMath-V2's self-verifiable reasoning approach*")
+st.markdown("---")
 
 if reset_button:
     st.session_state.iteration_history = []
     st.session_state.run_settings = {}
     st.rerun()
-
-# Main title
-st.title("🎓 Student-Teacher Visual Feature Learning System")
-st.markdown("*Inspired by DeepSeekMath-V2's self-verifiable reasoning approach*")
-
-# Image upload
-col1, col2 = st.columns(2)
-with col1:
-    uploaded_file = st.file_uploader("1. Upload an image to start a new session", type=['png', 'jpg', 'jpeg', 'webp'])
-
-with col2:
-    # Disable session loader if a session is already active
-    session_loader_disabled = bool(st.session_state.iteration_history)
-    uploaded_session = st.file_uploader(
-        "2. Or, upload a session file (.zip) to continue",
-        type=['zip'],
-        disabled=session_loader_disabled,
-        help="Load a previously saved training session. This will be disabled if a session is already active."
-    )
 
 if uploaded_session and not session_loader_disabled:
     try:
@@ -132,6 +149,8 @@ if uploaded_session and not session_loader_disabled:
     except Exception as e:
         st.error(f"❌ Failed to load session file. Error: {e}")
 
+# Image uploader in the main area
+uploaded_file = st.file_uploader("1. Upload an image to start a new session", type=['png', 'jpg', 'jpeg', 'webp'])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
@@ -410,33 +429,36 @@ if run_button and uploaded_file and not st.session_state.iteration_history:
         
         with st.expander(f"📊 Iteration {iteration + 1}", expanded=(iteration == num_iterations - 1)):
             col1, col2 = st.columns(2)
-            
+
             # Student phase
             with col1:
-                st.subheader("👨‍🎓 Student Output")
-                with st.spinner("Student analyzing image..."):
-                    student_output = call_student_model(image, iteration, temperature, max_steps)
-                    time.sleep(0.5)  # Brief delay for UI
-                
-                st.markdown("**Student's Analysis:**")
-                st.text_area(
-                    "Student Response",
-                    student_output,
-                    height=300,
-                    key=f"student_{iteration}",
-                    label_visibility="collapsed"
-                )
-            
+                with st.container(border=True):
+                    st.subheader("👨‍🎓 Student Output")
+                    with st.spinner("Student analyzing image..."):
+                        student_output = call_student_model(image, iteration, temperature, max_steps)
+                        time.sleep(0.5)  # Brief delay for UI
+
+                    st.markdown("**Student's Analysis:**")
+                    st.text_area(
+                        "Student Response",
+                        student_output,
+                        height=300,
+                        key=f"student_{iteration}",
+                        label_visibility="collapsed"
+                    )
+
             # Teacher phase
             with col2:
-                st.subheader("👨‍🏫 Teacher Evaluation")
-                with st.spinner("Teacher evaluating..."):
-                    teacher_response = call_teacher_model(image, student_output, task_name, max_steps)
-                    time.sleep(0.5)  # Brief delay for UI
-                
-                if "error" in teacher_response:
-                    st.error(f"Teacher Error: {teacher_response['error']}")
-                else:
+                with st.container(border=True):
+                    st.subheader("👨‍🏫 Teacher Evaluation")
+                    with st.spinner("Teacher evaluating..."):
+                        teacher_response = call_teacher_model(image, student_output, task_name, max_steps)
+                        time.sleep(0.5)  # Brief delay for UI
+
+                    if "error" in teacher_response:
+                        st.error(f"Teacher Error: {teacher_response['error']}")
+                        continue # Skip to next iteration if teacher fails
+
                     # Display reward prominently
                     reward = teacher_response.get("overall_reward", 0)
                     reward_color = "green" if reward == 1 else ("orange" if reward == 0.5 else "red")
@@ -447,47 +469,47 @@ if run_button and uploaded_file and not st.session_state.iteration_history:
                     
                     st.markdown("**Advice:**")
                     st.info(teacher_response.get('advice_to_student', 'No advice'))
-            
+
             # Detailed feedback section
             if not teacher_response.get("error") and show_step_feedback:
                 st.markdown("---")
-                st.subheader("📝 Step-by-Step Feedback")
-                
-                step_feedback = teacher_response.get('step_feedback', [])
-                
-                # Create metrics
-                exact_match = sum(1 for s in step_feedback if s.get('label') == 'EXACT_MATCH')
-                partial = sum(1 for s in step_feedback if s.get('label') == 'PARTIAL')
-                wrong = sum(1 for s in step_feedback if s.get('label') == 'WRONG')
-                
-                metric_cols = st.columns(3)
-                metric_cols[0].metric("✅ Exact Match", exact_match)
-                metric_cols[1].metric("⚠️ Partial", partial)
-                metric_cols[2].metric("❌ Wrong", wrong)
-                
-                # Display feedback for each step
-                for step in step_feedback:
-                    label = step.get('label', 'UNKNOWN')
-                    emoji = "✅" if label == 'EXACT_MATCH' else ("⚠️" if label == 'PARTIAL' else "❌")
-                    color = "green" if label == 'EXACT_MATCH' else ("orange" if label == 'PARTIAL' else "red")
-                    
-                    with st.container():
-                        st.markdown(f"**{emoji} Step {step.get('index', '?')}**: {label}")
-                        st.markdown(f"*Student:* {step.get('student_step', 'N/A')}")
-                        st.markdown(f":{color}[{step.get('comment', 'No comment')}]")
-                        st.markdown("")
-            
+                with st.container(border=True):
+                    st.subheader("📝 Step-by-Step Feedback")
+                    step_feedback = teacher_response.get('step_feedback', [])
+
+                    # Create metrics
+                    exact_match = sum(1 for s in step_feedback if s.get('label') == 'EXACT_MATCH')
+                    partial = sum(1 for s in step_feedback if s.get('label') == 'PARTIAL')
+                    wrong = sum(1 for s in step_feedback if s.get('label') == 'WRONG')
+
+                    metric_cols = st.columns(3)
+                    metric_cols[0].metric("✅ Exact Match", exact_match)
+                    metric_cols[1].metric("⚠️ Partial", partial)
+                    metric_cols[2].metric("❌ Wrong", wrong)
+                    st.markdown("---")
+
+                    # Display feedback for each step
+                    for step in step_feedback:
+                        label = step.get('label', 'UNKNOWN')
+                        emoji = "✅" if label == 'EXACT_MATCH' else ("⚠️" if label == 'PARTIAL' else "❌")
+                        color = "green" if label == 'EXACT_MATCH' else ("orange" if label == 'PARTIAL' else "red")
+
+                        with st.container():
+                            st.markdown(f"**{emoji} Step {step.get('index', '?')}**: `{label}`")
+                            st.markdown(f"> *Student:* {step.get('student_step', 'N/A')}")
+                            st.markdown(f"> :{color}[**Teacher:** {step.get('comment', 'No comment')}]")
+                            st.markdown("<br>", unsafe_allow_html=True)
+
             # Teacher's ground truth
             if not teacher_response.get("error") and show_teacher_features:
-                st.markdown("---")
-                st.subheader("🎯 Teacher's Ground Truth Features")
-                teacher_features = teacher_response.get('teacher_features', [])
-                for i, feature in enumerate(teacher_features, 1):
-                    st.markdown(f"{i}. {feature}")
-            
+                with st.container(border=True):
+                    st.subheader("🎯 Teacher's Ground Truth Features")
+                    teacher_features = teacher_response.get('teacher_features', [])
+                    for i, feature in enumerate(teacher_features, 1):
+                        st.markdown(f"{i}. {feature}")
+
             # Raw JSON
             if show_raw_json and not teacher_response.get("error"):
-                st.markdown("---")
                 with st.expander("🔍 Raw JSON Response"):
                     st.json(teacher_response)
             
@@ -514,47 +536,48 @@ if st.session_state.iteration_history:
     # This block runs on every script rerun as long as training data exists in the session state.
     # This ensures that interacting with widgets (like the download button) doesn't lose the results.
     st.markdown("---")
-    st.header("📈 Training Summary & Results")
-    st.success("**✅ Training Complete!** View the summary and iteration details below.")
+    with st.container(border=True):
+        st.header("📈 Training Summary & Results")
+        st.success("**✅ Training Complete!** View the summary and iteration details below.")
 
-    # Summary statistics
-    rewards = [h['reward'] for h in st.session_state.iteration_history]
-    if rewards:
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Iterations", len(rewards))
-        col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
-        col3.metric("Best Reward", max(rewards))
-        col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}" if len(rewards) > 1 else "N/A")
+        # Summary statistics
+        rewards = [h['reward'] for h in st.session_state.iteration_history]
+        if rewards:
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Iterations", len(rewards))
+            col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
+            col3.metric("Best Reward", max(rewards))
+            col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}" if len(rewards) > 1 else "N/A")
 
-        # Reward chart
-        import pandas as pd
-        df = pd.DataFrame({
-            'Iteration': list(range(1, len(rewards) + 1)),
-            'Reward': rewards
-        })
-        st.line_chart(df.set_index('Iteration'))
+            # Reward chart
+            import pandas as pd
+            df = pd.DataFrame({
+                'Iteration': list(range(1, len(rewards) + 1)),
+                'Reward': rewards
+            })
+            st.line_chart(df.set_index('Iteration'))
 
-        # --- ZIP Download Logic ---
-        # Prepare the full session data for download
-        session_data_to_save = {
-            "settings": st.session_state.run_settings,
-            "iteration_history": st.session_state.iteration_history
-        }
-        json_data = json.dumps(session_data_to_save, indent=2)
+            # --- ZIP Download Logic ---
+            # Prepare the full session data for download
+            session_data_to_save = {
+                "settings": st.session_state.run_settings,
+                "iteration_history": st.session_state.iteration_history
+            }
+            json_data = json.dumps(session_data_to_save, indent=2)
 
-        # Create a ZIP file in memory
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            # Add the session data as session.json inside the zip
-            zf.writestr("session.json", json_data)
-        zip_buffer.seek(0)
+            # Create a ZIP file in memory
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                # Add the session data as session.json inside the zip
+                zf.writestr("session.json", json_data)
+            zip_buffer.seek(0)
 
-        st.download_button(
-            label="📥 Download Session (.zip)",
-            data=zip_buffer,
-            file_name=f"training_session_{int(time.time())}.zip",
-            mime="application/zip"
-        )
+            st.download_button(
+                label="📥 Download Session (.zip)",
+                data=zip_buffer,
+                file_name=f"training_session_{int(time.time())}.zip",
+                mime="application/zip"
+            )
 
 # Footer
 st.markdown("---")
