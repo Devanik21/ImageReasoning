@@ -50,8 +50,8 @@ if not check_password():
 # Initialize session state
 if 'iteration_history' not in st.session_state:
     st.session_state.iteration_history = []
-if 'current_iteration' not in st.session_state:
-    st.session_state.current_iteration = 0
+if 'run_settings' not in st.session_state:
+    st.session_state.run_settings = {}
 
 # Get API key from secrets
 try:
@@ -60,14 +60,19 @@ except KeyError:
     st.error("`GEMINI_API_KEY` not found in st.secrets. Please add it to continue.")
     st.stop()
 
+# --- Sidebar ---
+st.sidebar.title("⚙️ Configuration")
+
+# Helper to get value from session state or default
+def get_setting(key, default):
+    return st.session_state.run_settings.get(key, default)
+
 # Parameters
 st.sidebar.subheader("Training Parameters")
-num_iterations = st.sidebar.slider("Number of Iterations", 1, 20, 5, help="How many student-teacher cycles to run")
-temperature = st.sidebar.slider("Student Temperature", 0.0, 2.0, 0.7, 0.1, help="Higher = more creative, Lower = more deterministic")
-max_steps = st.sidebar.number_input("Max Features", 5, 20, 10, help="Number of visual features to extract")
-task_name = st.sidebar.text_input("Task Name", "Visual Feature Extraction", help="Name of the current task")
-
-st.sidebar.title("⚙️ Configuration")
+num_iterations = st.sidebar.slider("Number of Iterations", 1, 20, get_setting('num_iterations', 5), help="How many student-teacher cycles to run")
+temperature = st.sidebar.slider("Student Temperature", 0.0, 2.0, get_setting('temperature', 0.7), 0.1, help="Higher = more creative, Lower = more deterministic")
+max_steps = st.sidebar.number_input("Max Features", 5, 20, get_setting('max_steps', 10), help="Number of visual features to extract")
+task_name = st.sidebar.text_input("Task Name", get_setting('task_name', "Visual Feature Extraction"), help="Name of the current task")
 
 st.sidebar.markdown("---")
 
@@ -89,7 +94,7 @@ with col2:
 
 if reset_button:
     st.session_state.iteration_history = []
-    st.session_state.current_iteration = 0
+    st.session_state.run_settings = {}
     st.rerun()
 
 # Main title
@@ -97,7 +102,36 @@ st.title("🎓 Student-Teacher Visual Feature Learning System")
 st.markdown("*Inspired by DeepSeekMath-V2's self-verifiable reasoning approach*")
 
 # Image upload
-uploaded_file = st.file_uploader("📷 Upload an image", type=['png', 'jpg', 'jpeg', 'webp'])
+col1, col2 = st.columns(2)
+with col1:
+    uploaded_file = st.file_uploader("1. Upload an image to start a new session", type=['png', 'jpg', 'jpeg', 'webp'])
+
+with col2:
+    # Disable session loader if a session is already active
+    session_loader_disabled = bool(st.session_state.iteration_history)
+    uploaded_session = st.file_uploader(
+        "2. Or, upload a session file (.zip) to continue",
+        type=['zip'],
+        disabled=session_loader_disabled,
+        help="Load a previously saved training session. This will be disabled if a session is already active."
+    )
+
+if uploaded_session and not session_loader_disabled:
+    try:
+        with zipfile.ZipFile(uploaded_session, 'r') as zf:
+            with zf.open('session.json') as json_file:
+                session_data = json.load(json_file)
+                
+                # Restore state from the loaded file
+                st.session_state.iteration_history = session_data.get("iteration_history", [])
+                st.session_state.run_settings = session_data.get("settings", {})
+                
+                st.success("✅ Session successfully loaded! The page will now refresh.")
+                time.sleep(2) # Give user time to read the message
+                st.rerun()
+    except Exception as e:
+        st.error(f"❌ Failed to load session file. Error: {e}")
+
 
 if uploaded_file:
     image = Image.open(uploaded_file)
@@ -362,6 +396,14 @@ if run_button and uploaded_file and not st.session_state.iteration_history:
     
     progress_bar = st.progress(0)
     status_text = st.empty()
+
+    # Store the settings for this run in session state
+    st.session_state.run_settings = {
+        'num_iterations': num_iterations,
+        'temperature': temperature,
+        'max_steps': max_steps,
+        'task_name': task_name
+    }
     
     for iteration in range(num_iterations):
         status_text.markdown(f"**Iteration {iteration + 1} / {num_iterations}**")
@@ -493,18 +535,24 @@ if st.session_state.iteration_history:
         st.line_chart(df.set_index('Iteration'))
 
         # --- ZIP Download Logic ---
-        # Prepare the JSON data in memory
-        json_data = json.dumps(st.session_state.iteration_history, indent=2)
+        # Prepare the full session data for download
+        session_data_to_save = {
+            "settings": st.session_state.run_settings,
+            "iteration_history": st.session_state.iteration_history
+        }
+        json_data = json.dumps(session_data_to_save, indent=2)
+
         # Create a ZIP file in memory
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("results.json", json_data)
+            # Add the session data as session.json inside the zip
+            zf.writestr("session.json", json_data)
         zip_buffer.seek(0)
 
         st.download_button(
-            label="📥 Download Results (.zip)",
+            label="📥 Download Session (.zip)",
             data=zip_buffer,
-            file_name=f"training_results_{int(time.time())}.zip",
+            file_name=f"training_session_{int(time.time())}.zip",
             mime="application/zip"
         )
 
