@@ -4,7 +4,7 @@ from PIL import Image
 import json
 import io
 import time
-
+import zipfile
 # Page config
 st.set_page_config(
     page_title="Student-Teacher Visual Feature Learning",
