@@ -469,36 +469,44 @@ elif run_button and st.session_state.iteration_history:
 
 # --- Display Results (always shows if history exists) ---
 if st.session_state.iteration_history:
+    # This block runs on every script rerun as long as training data exists in the session state.
+    # This ensures that interacting with widgets (like the download button) doesn't lose the results.
     st.markdown("---")
     st.header("📈 Training Summary & Results")
     st.success("**✅ Training Complete!** View the summary and iteration details below.")
 
     # Summary statistics
     rewards = [h['reward'] for h in st.session_state.iteration_history]
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Iterations", len(rewards))
-    col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
-    col3.metric("Best Reward", max(rewards))
-    col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}" if len(rewards) > 1 else "N/A")
-    
-    # Reward chart
-    import pandas as pd
-    
-    df = pd.DataFrame({
-        'Iteration': list(range(1, len(rewards) + 1)),
-        'Reward': rewards
-    })
-    
-    st.line_chart(df.set_index('Iteration'))
-    
-    # Download results
-    st.download_button(
-        label="📥 Download Results (JSON)",
-        data=json.dumps(st.session_state.iteration_history, indent=2),
-        file_name=f"training_results_{int(time.time())}.json",
-        mime="application/json"
-    )
+    if rewards:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Iterations", len(rewards))
+        col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
+        col3.metric("Best Reward", max(rewards))
+        col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}" if len(rewards) > 1 else "N/A")
+
+        # Reward chart
+        import pandas as pd
+        df = pd.DataFrame({
+            'Iteration': list(range(1, len(rewards) + 1)),
+            'Reward': rewards
+        })
+        st.line_chart(df.set_index('Iteration'))
+
+        # --- ZIP Download Logic ---
+        # Prepare the JSON data in memory
+        json_data = json.dumps(st.session_state.iteration_history, indent=2)
+        # Create a ZIP file in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("results.json", json_data)
+        zip_buffer.seek(0)
+
+        st.download_button(
+            label="📥 Download Results (.zip)",
+            data=zip_buffer,
+            file_name=f"training_results_{int(time.time())}.zip",
+            mime="application/zip"
+        )
 
 # Footer
 st.markdown("---")
