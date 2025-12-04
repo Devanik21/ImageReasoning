@@ -311,7 +311,7 @@ def call_teacher_model(image, student_output, task_name, api_key):
         genai.configure(api_key=api_key)
         
         # Use Gemma 3 27B
-        model = genai.GenerativeModel('gemma-2-27b-it')
+        model = genai.GenerativeModel('gemma-3-27b-it')
         
         prompt = TEACHER_PROMPT_TEMPLATE.format(
             TASK_NAME=task_name,
