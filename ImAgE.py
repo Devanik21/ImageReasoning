@@ -12,19 +12,53 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Authentication ---
+def check_password():
+    """Returns `True` if the user is logged in."""
+    if st.session_state.get("logged_in", False):
+        return True
+
+    if "login_attempts" not in st.session_state:
+        st.session_state.login_attempts = 0
+
+    if st.session_state.login_attempts >= 3:
+        st.error("Too many incorrect attempts. The application is locked.")
+        st.stop()
+
+    st.title("🔐 Login")
+    password_input = st.text_input("Password", type="password", key="password")
+
+    if st.button("Enter"):
+        try:
+            correct_password = st.secrets["APP_PASSWORD"]
+            if password_input == correct_password:
+                st.session_state.logged_in = True
+                st.rerun()
+            else:
+                st.session_state.login_attempts += 1
+                st.rerun() # Reruns to clear input and show the form again
+        except KeyError:
+            st.error("APP_PASSWORD not configured in st.secrets.")
+            st.stop()
+    return False
+
+if not check_password():
+    st.stop()
+
+# --- App Initialization ---
+
 # Initialize session state
 if 'iteration_history' not in st.session_state:
     st.session_state.iteration_history = []
 if 'current_iteration' not in st.session_state:
     st.session_state.current_iteration = 0
 
-# Sidebar controls
-st.sidebar.title("⚙️ Configuration")
-
-# API Key
-api_key = st.sidebar.text_input("Gemini API Key", type="password", help="Enter your Google Gemini API key")
-
-st.sidebar.markdown("---")
+# Get API key from secrets
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    st.error("`GEMINI_API_KEY` not found in st.secrets. Please add it to continue.")
+    st.stop()
 
 # Parameters
 st.sidebar.subheader("Training Parameters")
@@ -32,6 +66,8 @@ num_iterations = st.sidebar.slider("Number of Iterations", 1, 20, 5, help="How m
 temperature = st.sidebar.slider("Student Temperature", 0.0, 2.0, 0.7, 0.1, help="Higher = more creative, Lower = more deterministic")
 max_steps = st.sidebar.number_input("Max Features", 5, 20, 10, help="Number of visual features to extract")
 task_name = st.sidebar.text_input("Task Name", "Visual Feature Extraction", help="Name of the current task")
+
+st.sidebar.title("⚙️ Configuration")
 
 st.sidebar.markdown("---")
 
@@ -320,7 +356,7 @@ def call_teacher_model(image, student_output, task_name, max_steps):
         return {"error": str(e)}
 
 # Run training iterations
-if run_button and uploaded_file and api_key:
+if run_button and uploaded_file and not st.session_state.iteration_history:
     st.markdown("---")
     st.header("🔄 Training Progress")
     
@@ -425,42 +461,44 @@ if run_button and uploaded_file and api_key:
     
     status_text.markdown("**✅ Training Complete!**")
     
-    # Summary statistics
-    st.markdown("---")
-    st.header("📈 Training Summary")
-    
-    if st.session_state.iteration_history:
-        rewards = [h['reward'] for h in st.session_state.iteration_history]
-        
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Iterations", len(rewards))
-        col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
-        col3.metric("Best Reward", max(rewards))
-        col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}")
-        
-        # Reward chart
-        import pandas as pd
-        
-        df = pd.DataFrame({
-            'Iteration': list(range(1, len(rewards) + 1)),
-            'Reward': rewards
-        })
-        
-        st.line_chart(df.set_index('Iteration'))
-        
-        # Download results
-        st.download_button(
-            label="📥 Download Results (JSON)",
-            data=json.dumps(st.session_state.iteration_history, indent=2),
-            file_name=f"training_results_{int(time.time())}.json",
-            mime="application/json"
-        )
-
-elif run_button:
+elif run_button and not uploaded_file:
     if not uploaded_file:
         st.warning("⚠️ Please upload an image first!")
-    if not api_key:
-        st.warning("⚠️ Please enter your Gemini API key in the sidebar!")
+elif run_button and st.session_state.iteration_history:
+    st.warning("⚠️ A training session is already complete. Please press 'Reset' to start a new one.")
+
+# --- Display Results (always shows if history exists) ---
+if st.session_state.iteration_history:
+    st.markdown("---")
+    st.header("📈 Training Summary & Results")
+    st.success("**✅ Training Complete!** View the summary and iteration details below.")
+
+    # Summary statistics
+    rewards = [h['reward'] for h in st.session_state.iteration_history]
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Iterations", len(rewards))
+    col2.metric("Average Reward", f"{sum(rewards) / len(rewards):.2f}")
+    col3.metric("Best Reward", max(rewards))
+    col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}" if len(rewards) > 1 else "N/A")
+    
+    # Reward chart
+    import pandas as pd
+    
+    df = pd.DataFrame({
+        'Iteration': list(range(1, len(rewards) + 1)),
+        'Reward': rewards
+    })
+    
+    st.line_chart(df.set_index('Iteration'))
+    
+    # Download results
+    st.download_button(
+        label="📥 Download Results (JSON)",
+        data=json.dumps(st.session_state.iteration_history, indent=2),
+        file_name=f"training_results_{int(time.time())}.json",
+        mime="application/json"
+    )
 
 # Footer
 st.markdown("---")
