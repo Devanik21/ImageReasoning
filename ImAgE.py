@@ -380,7 +380,7 @@ def main():
         if uploaded_file:
             image = Image.open(uploaded_file).convert('RGB')
             st.session_state.uploaded_image = image
-            st.image(image, caption="Uploaded Image", use_container_width=True)
+            st.image(image, caption="Uploaded Image", width='stretch')
     
     with col2:
         st.subheader("⚙️ Training Parameters")
@@ -391,12 +391,12 @@ def main():
         
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("🔄 Init Model", use_container_width=True):
+            if st.button("🔄 Init Model", width='stretch'):
                 st.session_state.student_model, st.session_state.optimizer = initialize_student_model(num_features)
                 st.success("Model initialized!")
         
         with col_b:
-            if st.button("🗑️ Clear History", use_container_width=True):
+            if st.button("🗑️ Clear History", width='stretch'):
                 st.session_state.iteration_history = []
                 st.rerun()
     
@@ -412,7 +412,7 @@ def main():
     st.divider()
     
     # Run button
-    if st.button("▶️ **START TRAINING**", type="primary", use_container_width=True):
+    if st.button("▶️ **START TRAINING**", type="primary", width='stretch'):
         st.session_state.training_active = True
     
     # Training loop
