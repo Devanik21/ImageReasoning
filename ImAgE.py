@@ -265,7 +265,7 @@ def call_student_model(image, iteration_num, temperature, max_steps):
         genai.configure(api_key=api_key)
         
         # Use a slightly weaker configuration for student
-        model = genai.GenerativeModel('gemma-27b-it')
+        model = genai.GenerativeModel('gemma-3-27b-it')
         
         prompt = STUDENT_PROMPT_TEMPLATE.format(MAX_STEPS=max_steps)
         
