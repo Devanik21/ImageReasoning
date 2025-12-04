@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 import google.generativeai as genai
 from PIL import Image
 import json
@@ -10,14 +9,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
-import base64
-
-# Page config
-st.set_page_config(
-    page_title="Student-Teacher Visual Feature Learning",
-    page_icon="🎓",
-    layout="wide"
-)
 
 # Initialize session state
 if 'iteration_history' not in st.session_state:
@@ -28,8 +19,10 @@ if 'student_model' not in st.session_state:
     st.session_state.student_model = None
 if 'optimizer' not in st.session_state:
     st.session_state.optimizer = None
-if 'canvas_image' not in st.session_state:
-    st.session_state.canvas_image = None
+if 'uploaded_image' not in st.session_state:
+    st.session_state.uploaded_image = None
+if 'training_active' not in st.session_state:
+    st.session_state.training_active = False
 
 # ================================
 # STUDENT MODEL: CNN-based Feature Extractor
@@ -50,7 +43,6 @@ class StudentCNN(nn.Module):
         self.dropout = nn.Dropout(0.3)
         
         # Feature extraction heads
-        # Each head predicts one visual feature type
         self.feature_heads = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(256 * 14 * 14, 512),
@@ -61,9 +53,6 @@ class StudentCNN(nn.Module):
                 nn.Linear(128, 1)
             ) for _ in range(num_features)
         ])
-        
-        # Feature description generator (simplified)
-        self.description_embeddings = nn.Embedding(num_features, 256)
         
     def forward(self, x):
         # Convolutional feature extraction
@@ -322,17 +311,12 @@ def call_teacher_model(image, student_output, task_name, api_key):
         genai.configure(api_key=api_key)
         
         # Use Gemma 3 27B
-        model = genai.GenerativeModel('gemma-3-27b-it')
+        model = genai.GenerativeModel('gemma-2-27b-it')
         
         prompt = TEACHER_PROMPT_TEMPLATE.format(
             TASK_NAME=task_name,
             STUDENT_OUTPUT=student_output
         )
-        
-        # Convert image to bytes
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
         
         response = model.generate_content(
             [prompt, image],
@@ -367,9 +351,8 @@ def train_student_step(model, optimizer, image, reward):
         # Forward pass
         features = model(image_tensor)
         
-        # Simple reward-based loss (higher reward = lower loss)
-        # In real RL, this would be PPO/REINFORCE
-        loss = -reward * torch.mean(features)  # Maximize reward
+        # Simple reward-based loss
+        loss = -reward * torch.mean(features)
         
         loss.backward()
         optimizer.step()
@@ -379,237 +362,183 @@ def train_student_step(model, optimizer, image, reward):
         return 0.0
 
 # ================================
-# STREAMLIT UI
+# MAIN APP FUNCTION
 # ================================
-
-# Sidebar controls
-st.sidebar.title("⚙️ Configuration")
-
-# API Key
-api_key = st.sidebar.text_input("Gemini API Key", type="password", help="Enter your Google Gemini API key")
-
-st.sidebar.markdown("---")
-
-# Parameters
-st.sidebar.subheader("Training Parameters")
-num_iterations = st.sidebar.slider("Number of Iterations", 1, 50, 10)
-learning_rate = st.sidebar.slider("Learning Rate", 0.0001, 0.01, 0.001, 0.0001, format="%.4f")
-num_features = st.sidebar.number_input("Number of Features", 5, 20, 10)
-task_name = st.sidebar.text_input("Task Name", "Visual Feature Extraction")
-
-st.sidebar.markdown("---")
-
-# Display settings
-st.sidebar.subheader("Display Settings")
-show_teacher_features = st.sidebar.checkbox("Show Teacher's Ground Truth", True)
-show_step_feedback = st.sidebar.checkbox("Show Step-by-Step Feedback", True)
-show_raw_json = st.sidebar.checkbox("Show Raw JSON Response", False)
-show_loss_curve = st.sidebar.checkbox("Show Loss Curve", True)
-
-st.sidebar.markdown("---")
-
-# Model controls
-st.sidebar.subheader("Model Controls")
-if st.sidebar.button("🔄 Initialize/Reset Student Model", use_container_width=True):
-    st.session_state.student_model, st.session_state.optimizer = initialize_student_model(num_features)
-    st.sidebar.success("Student model initialized!")
-
-st.sidebar.markdown("---")
-
-# Control buttons
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    run_button = st.button("▶️ Run Training", type="primary", use_container_width=True)
-with col2:
-    reset_button = st.button("🗑️ Clear History", use_container_width=True)
-
-if reset_button:
-    st.session_state.iteration_history = []
-    st.session_state.current_iteration = 0
-    st.rerun()
-
-# Main title
-st.title("🎓 Student-Teacher Visual Feature Learning System")
-st.markdown("*CNN Student + Gemma 3 27B Teacher | Self-Verifiable Learning*")
-
-# Canvas for drawing
-tab1, tab2 = st.tabs(["🎨 Draw/Upload Image", "📊 Training Dashboard"])
-
-with tab1:
-    st.subheader("Create or Upload Image")
+def main():
+    # Configuration
+    api_key = st.text_input("🔑 Gemini API Key", type="password", placeholder="Enter your API key")
     
-    col1, col2 = st.columns([2, 1])
+    st.divider()
+    
+    # Upload image
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        drawing_mode = st.selectbox(
-            "Drawing tool:",
-            ("freedraw", "line", "rect", "circle", "transform", "polygon")
-        )
-        
-        stroke_width = st.slider("Stroke width:", 1, 25, 3)
-        stroke_color = st.color_picker("Stroke color:", "#000000")
-        bg_color = st.color_picker("Background color:", "#FFFFFF")
-        
-        # Canvas
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)",
-            stroke_width=stroke_width,
-            stroke_color=stroke_color,
-            background_color=bg_color,
-            height=400,
-            width=600,
-            drawing_mode=drawing_mode,
-            key="canvas",
-        )
-        
-        # Save canvas image
-        if canvas_result.image_data is not None:
-            st.session_state.canvas_image = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
-    
-    with col2:
-        st.markdown("**Or upload an image:**")
-        uploaded_file = st.file_uploader("Choose image", type=['png', 'jpg', 'jpeg', 'webp'])
+        st.subheader("📷 Upload Image")
+        uploaded_file = st.file_uploader("Choose an image", type=['png', 'jpg', 'jpeg', 'webp'])
         
         if uploaded_file:
-            uploaded_image = Image.open(uploaded_file).convert('RGB')
-            st.image(uploaded_image, caption="Uploaded", use_container_width=True)
-            st.session_state.canvas_image = uploaded_image
-        
-        if st.session_state.canvas_image:
-            st.markdown("**Current Image:**")
-            st.image(st.session_state.canvas_image, use_container_width=True)
-
-# Get active image
-active_image = st.session_state.canvas_image
-if active_image and active_image.mode == 'RGBA':
-    # Convert RGBA to RGB
-    rgb_image = Image.new('RGB', active_image.size, (255, 255, 255))
-    rgb_image.paste(active_image, mask=active_image.split()[3])
-    active_image = rgb_image
-
-# Run training
-if run_button and active_image and api_key:
-    if st.session_state.student_model is None:
-        st.session_state.student_model, st.session_state.optimizer = initialize_student_model(num_features)
+            image = Image.open(uploaded_file).convert('RGB')
+            st.session_state.uploaded_image = image
+            st.image(image, caption="Uploaded Image", use_container_width=True)
     
-    with tab2:
+    with col2:
+        st.subheader("⚙️ Training Parameters")
+        num_iterations = st.number_input("Number of Iterations", 1, 50, 10)
+        learning_rate = st.number_input("Learning Rate", 0.0001, 0.01, 0.001, format="%.4f")
+        num_features = st.number_input("Number of Features", 5, 20, 10)
+        task_name = st.text_input("Task Name", "Visual Feature Extraction")
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("🔄 Init Model", use_container_width=True):
+                st.session_state.student_model, st.session_state.optimizer = initialize_student_model(num_features)
+                st.success("Model initialized!")
+        
+        with col_b:
+            if st.button("🗑️ Clear History", use_container_width=True):
+                st.session_state.iteration_history = []
+                st.rerun()
+    
+    st.divider()
+    
+    # Display settings
+    col1, col2, col3, col4 = st.columns(4)
+    show_teacher_features = col1.checkbox("Teacher Features", True)
+    show_step_feedback = col2.checkbox("Step Feedback", True)
+    show_raw_json = col3.checkbox("Raw JSON", False)
+    show_loss_curve = col4.checkbox("Loss Curve", True)
+    
+    st.divider()
+    
+    # Run button
+    if st.button("▶️ **START TRAINING**", type="primary", use_container_width=True):
+        st.session_state.training_active = True
+    
+    # Training loop
+    if st.session_state.training_active and st.session_state.uploaded_image and api_key:
+        if st.session_state.student_model is None:
+            st.session_state.student_model, st.session_state.optimizer = initialize_student_model(num_features)
+        
         st.header("🔄 Training Progress")
         
         progress_bar = st.progress(0)
-        status_text = st.empty()
+        status_container = st.container()
         
         losses = []
         rewards = []
         
         for iteration in range(num_iterations):
-            status_text.markdown(f"**Iteration {iteration + 1} / {num_iterations}**")
-            
-            with st.expander(f"📊 Iteration {iteration + 1}", expanded=(iteration == num_iterations - 1)):
+            with status_container:
+                st.subheader(f"Iteration {iteration + 1} / {num_iterations}")
+                
                 col1, col2 = st.columns(2)
                 
                 # Student phase
                 with col1:
-                    st.subheader("👨‍🎓 Student CNN Output")
-                    with st.spinner("Student analyzing..."):
+                    st.markdown("### 👨‍🎓 Student CNN")
+                    with st.spinner("Analyzing..."):
                         student_output, student_descriptions = call_student_model(
-                            active_image, 
+                            st.session_state.uploaded_image, 
                             st.session_state.student_model
                         )
-                        time.sleep(0.3)
+                        time.sleep(0.2)
                     
-                    st.text_area(
-                        "Predictions",
-                        student_output,
-                        height=350,
-                        key=f"student_{iteration}",
-                        label_visibility="collapsed"
-                    )
+                    st.code(student_output, language=None)
                 
                 # Teacher phase
                 with col2:
-                    st.subheader("👨‍🏫 Teacher Evaluation (Gemma 3)")
-                    with st.spinner("Teacher evaluating..."):
+                    st.markdown("### 👨‍🏫 Teacher (Gemma 3)")
+                    with st.spinner("Evaluating..."):
                         teacher_response = call_teacher_model(
-                            active_image, 
+                            st.session_state.uploaded_image, 
                             student_output, 
                             task_name, 
                             api_key
                         )
-                        time.sleep(0.3)
+                        time.sleep(0.2)
                     
                     if "error" in teacher_response:
                         st.error(f"Error: {teacher_response['error']}")
                         reward = -1
                     else:
                         reward = teacher_response.get("overall_reward", 0)
-                        reward_color = "green" if reward == 1 else ("orange" if reward == 0.5 else "red")
-                        reward_emoji = "✅" if reward == 1 else ("⚠️" if reward == 0.5 else "❌")
                         
-                        st.markdown(f"### {reward_emoji} Reward: `{reward}`")
-                        st.markdown(f":{reward_color}[{teacher_response.get('reward_explanation', '')}]")
+                        if reward == 1:
+                            st.success(f"✅ Reward: **+1**")
+                        elif reward == 0.5:
+                            st.warning(f"⚠️ Reward: **+0.5**")
+                        else:
+                            st.error(f"❌ Reward: **-1**")
                         
-                        st.markdown("**Advice:**")
-                        st.info(teacher_response.get('advice_to_student', ''))
+                        st.info(teacher_response.get('reward_explanation', ''))
+                        
+                        with st.expander("💡 Advice"):
+                            st.write(teacher_response.get('advice_to_student', ''))
                 
                 # Train student
-                with st.spinner("Updating student model..."):
+                with st.spinner("Updating model..."):
                     loss = train_student_step(
                         st.session_state.student_model,
                         st.session_state.optimizer,
-                        active_image,
+                        st.session_state.uploaded_image,
                         reward
                     )
                     losses.append(loss)
                     rewards.append(reward)
-                    time.sleep(0.2)
                 
-                st.success(f"Loss: {loss:.4f}")
+                st.metric("Training Loss", f"{loss:.4f}")
                 
                 # Detailed feedback
-                if not teacher_response.get("error") and show_step_feedback:
-                    st.markdown("---")
-                    st.subheader("📝 Step Feedback")
-                    
-                    step_feedback = teacher_response.get('step_feedback', [])
-                    
-                    exact = sum(1 for s in step_feedback if s.get('label') == 'EXACT_MATCH')
-                    partial = sum(1 for s in step_feedback if s.get('label') == 'PARTIAL')
-                    wrong = sum(1 for s in step_feedback if s.get('label') == 'WRONG')
-                    
-                    cols = st.columns(3)
-                    cols[0].metric("✅ Exact", exact)
-                    cols[1].metric("⚠️ Partial", partial)
-                    cols[2].metric("❌ Wrong", wrong)
-                    
-                    for step in step_feedback:
-                        label = step.get('label', 'UNKNOWN')
-                        emoji = "✅" if label == 'EXACT_MATCH' else ("⚠️" if label == 'PARTIAL' else "❌")
+                if not teacher_response.get("error"):
+                    if show_step_feedback:
+                        st.markdown("#### 📝 Step-by-Step Feedback")
                         
-                        st.markdown(f"{emoji} **Step {step.get('index')}**: {step.get('student_step', '')}")
-                        st.caption(step.get('comment', ''))
+                        step_feedback = teacher_response.get('step_feedback', [])
+                        
+                        exact = sum(1 for s in step_feedback if s.get('label') == 'EXACT_MATCH')
+                        partial = sum(1 for s in step_feedback if s.get('label') == 'PARTIAL')
+                        wrong = sum(1 for s in step_feedback if s.get('label') == 'WRONG')
+                        
+                        col_a, col_b, col_c = st.columns(3)
+                        col_a.metric("✅ Exact", exact)
+                        col_b.metric("⚠️ Partial", partial)
+                        col_c.metric("❌ Wrong", wrong)
+                        
+                        for step in step_feedback:
+                            label = step.get('label', 'UNKNOWN')
+                            if label == 'EXACT_MATCH':
+                                emoji = "✅"
+                            elif label == 'PARTIAL':
+                                emoji = "⚠️"
+                            else:
+                                emoji = "❌"
+                            
+                            st.markdown(f"{emoji} **Step {step.get('index')}**: {step.get('student_step', '')}")
+                            st.caption(step.get('comment', ''))
+                    
+                    if show_teacher_features:
+                        st.markdown("#### 🎯 Teacher Ground Truth")
+                        for i, feat in enumerate(teacher_response.get('teacher_features', []), 1):
+                            st.markdown(f"{i}. {feat}")
+                    
+                    if show_raw_json:
+                        with st.expander("🔍 Raw JSON"):
+                            st.json(teacher_response)
                 
-                if not teacher_response.get("error") and show_teacher_features:
-                    st.markdown("---")
-                    st.subheader("🎯 Teacher Ground Truth")
-                    for i, feat in enumerate(teacher_response.get('teacher_features', []), 1):
-                        st.markdown(f"{i}. {feat}")
-                
-                if show_raw_json and not teacher_response.get("error"):
-                    with st.expander("🔍 Raw JSON"):
-                        st.json(teacher_response)
+                st.divider()
             
             progress_bar.progress((iteration + 1) / num_iterations)
         
-        status_text.markdown("**✅ Training Complete!**")
+        st.success("✅ **Training Complete!**")
         
         # Summary
-        st.markdown("---")
         st.header("📈 Training Summary")
         
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Iterations", num_iterations)
-        col2.metric("Avg Reward", f"{sum(rewards)/len(rewards):.2f}")
-        col3.metric("Final Reward", rewards[-1])
+        col1.metric("Total Iterations", num_iterations)
+        col2.metric("Average Reward", f"{sum(rewards)/len(rewards):.2f}")
+        col3.metric("Final Reward", f"{rewards[-1]:.1f}")
         col4.metric("Improvement", f"{rewards[-1] - rewards[0]:+.1f}")
         
         # Charts
@@ -629,18 +558,17 @@ if run_button and active_image and api_key:
         })
         st.subheader("📊 Reward Progress")
         st.line_chart(df_reward.set_index('Iteration'))
+        
+        st.session_state.training_active = False
+    
+    elif st.session_state.training_active:
+        if not st.session_state.uploaded_image:
+            st.warning("⚠️ Please upload an image first!")
+            st.session_state.training_active = False
+        if not api_key:
+            st.warning("⚠️ Please enter your Gemini API key!")
+            st.session_state.training_active = False
 
-elif run_button:
-    if not active_image:
-        st.warning("⚠️ Please draw or upload an image first!")
-    if not api_key:
-        st.warning("⚠️ Please enter your Gemini API key!")
-
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    <p>🎓 CNN Student Model + Gemma 3 27B Teacher | Built with Streamlit</p>
-    <p>Self-Verifiable Visual Feature Learning System</p>
-</div>
-""", unsafe_allow_html=True)
+# Run in canvas mode
+if __name__ == "__main__":
+    main()
