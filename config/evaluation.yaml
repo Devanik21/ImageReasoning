@@ -1,0 +1,7 @@
+metrics:
+  - accuracy
+  - vqa_score
+
+datasets:
+  - vqav2
+  - gqa

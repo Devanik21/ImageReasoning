@@ -1,0 +1,7 @@
+model:
+  name: blip2-opt-2.7b
+  device: auto
+
+data:
+  batch_size: 32
+  num_workers: 4
